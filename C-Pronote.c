@@ -6,7 +6,7 @@
 /*   By: csauron <csauron@students.42.fr>           +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/02/26 00:57:25 by csauron           #+#    #+#             */
-/*   Updated: 2025/02/26 01:40:08 by csauron          ###   ########.fr       */
+/*   Updated: 2025/02/26 01:50:05 by csauron          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -377,26 +377,73 @@ void on_add_student_clicked(GtkButton *button, gpointer user_data) {
     gtk_widget_destroy(dialog);
 }
 
-void on_list_students_clicked(GtkButton *button, gpointer user_data) {
-    char *resultStr = listerElevesStr(db);
-    if(resultStr) {
-        GtkWidget *dialog = gtk_message_dialog_new(GTK_WINDOW(user_data),
-                                                   GTK_DIALOG_MODAL,
-                                                   GTK_MESSAGE_INFO,
-                                                   GTK_BUTTONS_OK,
-                                                   "%s", resultStr);
-        gtk_dialog_run(GTK_DIALOG(dialog));
-        gtk_widget_destroy(dialog);
-        free(resultStr);
-    } else {
-        GtkWidget *error = gtk_message_dialog_new(GTK_WINDOW(user_data),
-                                                   GTK_DIALOG_MODAL,
-                                                   GTK_MESSAGE_ERROR,
-                                                   GTK_BUTTONS_OK,
-                                                   "Erreur lors de la récupération des élèves.");
-        gtk_dialog_run(GTK_DIALOG(error));
-        gtk_widget_destroy(error);
+void on_list_students_clicked(GtkWidget *widget, gpointer data) {
+    GtkWidget *window;
+    GtkWidget *scrolled_window;
+    GtkWidget *treeview;
+    GtkListStore *store;
+    GtkTreeViewColumn *column;
+    GtkCellRenderer *renderer;
+    sqlite3 *db;
+    sqlite3_stmt *stmt;
+    int rc;
+
+    // Ouvrir la base de données
+    rc = sqlite3_open("eleves.db", &db);
+    if (rc != SQLITE_OK) {
+        g_printerr("Erreur ouverture base: %s\n", sqlite3_errmsg(db));
+        return;
     }
+
+    // Créer la fenêtre
+    window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_title(GTK_WINDOW(window), "Liste des étudiants");
+    gtk_window_set_default_size(GTK_WINDOW(window), 600, 400);
+    g_signal_connect(window, "destroy", G_CALLBACK(gtk_widget_destroy), NULL);
+
+    // Ajouter un défilement
+    scrolled_window = gtk_scrolled_window_new(NULL, NULL);
+    gtk_container_add(GTK_CONTAINER(window), scrolled_window);
+
+    // Créer le modèle de données
+    store = gtk_list_store_new(3, G_TYPE_INT, G_TYPE_STRING, G_TYPE_INT);
+    
+    // Exécuter la requête
+    rc = sqlite3_prepare_v2(db, "SELECT id, nom, age FROM eleves", -1, &stmt, NULL);
+    if (rc == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            GtkTreeIter iter;
+            gtk_list_store_append(store, &iter);
+            gtk_list_store_set(store, &iter,
+                0, sqlite3_column_int(stmt, 0),
+                1, sqlite3_column_text(stmt, 1),
+                2, sqlite3_column_int(stmt, 2),
+                -1);
+        }
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+
+    // Créer le TreeView
+    treeview = gtk_tree_view_new_with_model(GTK_TREE_MODEL(store));
+    gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(treeview), TRUE);
+    gtk_container_add(GTK_CONTAINER(scrolled_window), treeview);
+
+    // Ajouter les colonnes
+    renderer = gtk_cell_renderer_text_new();
+    column = gtk_tree_view_column_new_with_attributes("ID", renderer, "text", 0, NULL);
+    gtk_tree_view_append_column(GTK_TREE_VIEW(treeview), column);
+
+    renderer = gtk_cell_renderer_text_new();
+    column = gtk_tree_view_column_new_with_attributes("Nom", renderer, "text", 1, NULL);
+    gtk_tree_view_append_column(GTK_TREE_VIEW(treeview), column);
+
+    renderer = gtk_cell_renderer_text_new();
+    column = gtk_tree_view_column_new_with_attributes("Age", renderer, "text", 2, NULL);
+    gtk_tree_view_append_column(GTK_TREE_VIEW(treeview), column);
+
+    // Afficher la fenêtre
+    gtk_widget_show_all(window);
 }
 
 
