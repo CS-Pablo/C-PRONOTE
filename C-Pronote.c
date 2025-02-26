@@ -6,7 +6,7 @@
 /*   By: csauron <csauron@students.42.fr>           +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/02/26 00:57:25 by csauron           #+#    #+#             */
-/*   Updated: 2025/02/26 00:57:33 by csauron          ###   ########.fr       */
+/*   Updated: 2025/02/26 01:40:08 by csauron          ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -437,6 +437,7 @@ void on_delete_student_clicked(GtkButton *button, gpointer user_data) {
 }
 
 void on_search_student_clicked(GtkButton *button, gpointer user_data) {
+    // Boîte de dialogue pour saisir le terme de recherche
     GtkWidget *dialog = gtk_dialog_new_with_buttons("Rechercher un Élève",
                                                     GTK_WINDOW(user_data),
                                                     GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
@@ -448,31 +449,88 @@ void on_search_student_clicked(GtkButton *button, gpointer user_data) {
     gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "Entrez un terme de recherche");
     gtk_container_add(GTK_CONTAINER(content_area), entry);
     gtk_widget_show_all(dialog);
+    
     int response = gtk_dialog_run(GTK_DIALOG(dialog));
-    if(response == GTK_RESPONSE_OK) {
-        char *resultStr = NULL;
+    if (response == GTK_RESPONSE_OK) {
         const char *terme = gtk_entry_get_text(GTK_ENTRY(entry));
-        if (rechercherEleve(db, terme, &resultStr) && resultStr) {
-            GtkWidget *result_dialog = gtk_message_dialog_new(GTK_WINDOW(user_data),
-                                                              GTK_DIALOG_MODAL,
-                                                              GTK_MESSAGE_INFO,
-                                                              GTK_BUTTONS_OK,
-                                                              "%s", resultStr);
-            gtk_dialog_run(GTK_DIALOG(result_dialog));
-            gtk_widget_destroy(result_dialog);
-            free(resultStr);
+        
+        // Création de la fenêtre qui affichera les résultats
+        GtkWidget *result_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+        gtk_window_set_title(GTK_WINDOW(result_window), "Résultats de recherche");
+        gtk_window_set_default_size(GTK_WINDOW(result_window), 800, 400);
+        
+        // Création du modèle pour le TreeView
+        enum { COL_ID, COL_NOM, COL_AGE, COL_TAILLE, COL_EMAIL, COL_TELEPHONE, COL_GRADE, NUM_COLS };
+        GtkListStore *store = gtk_list_store_new(NUM_COLS,
+                                                 G_TYPE_INT,
+                                                 G_TYPE_STRING,
+                                                 G_TYPE_INT,
+                                                 G_TYPE_DOUBLE,
+                                                 G_TYPE_STRING,
+                                                 G_TYPE_STRING,
+                                                 G_TYPE_STRING);
+        
+        // Préparation de la requête pour récupérer les élèves correspondants
+        char sql[MAX_QUERY];
+        snprintf(sql, MAX_QUERY,
+                 "SELECT * FROM eleves WHERE nom LIKE '%%%s%%' OR email LIKE '%%%s%%' OR grade LIKE '%%%s%%';",
+                 terme, terme, terme);
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                int id = sqlite3_column_int(stmt, 0);
+                const char *nom = sqlite3_column_text(stmt, 1) ? (const char *)sqlite3_column_text(stmt, 1) : "";
+                int age = sqlite3_column_int(stmt, 2);
+                double taille = sqlite3_column_double(stmt, 3);
+                const char *email = sqlite3_column_text(stmt, 4) ? (const char *)sqlite3_column_text(stmt, 4) : "";
+                const char *telephone = sqlite3_column_text(stmt, 5) ? (const char *)sqlite3_column_text(stmt, 5) : "";
+                const char *grade = sqlite3_column_text(stmt, 6) ? (const char *)sqlite3_column_text(stmt, 6) : "";
+                
+                GtkTreeIter iter;
+                gtk_list_store_append(store, &iter);
+                gtk_list_store_set(store, &iter,
+                                   COL_ID, id,
+                                   COL_NOM, nom,
+                                   COL_AGE, age,
+                                   COL_TAILLE, taille,
+                                   COL_EMAIL, email,
+                                   COL_TELEPHONE, telephone,
+                                   COL_GRADE, grade,
+                                   -1);
+            }
+            sqlite3_finalize(stmt);
         } else {
-            GtkWidget *error = gtk_message_dialog_new(GTK_WINDOW(user_data),
-                                                        GTK_DIALOG_MODAL,
-                                                        GTK_MESSAGE_ERROR,
-                                                        GTK_BUTTONS_OK,
-                                                        "Aucun élève correspondant trouvé.");
-            gtk_dialog_run(GTK_DIALOG(error));
-            gtk_widget_destroy(error);
+            log_error(sqlite3_errmsg(db));
         }
+        
+        // Création du TreeView et de ses colonnes
+        GtkWidget *treeview = gtk_tree_view_new_with_model(GTK_TREE_MODEL(store));
+        g_object_unref(store); // Le modèle est maintenant référencé par le treeview
+        
+        // Fonction utilitaire pour ajouter une colonne
+        void add_column(const gchar *title, int col_index) {
+            GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
+            GtkTreeViewColumn *column = gtk_tree_view_column_new_with_attributes(title, renderer, "text", col_index, NULL);
+            gtk_tree_view_append_column(GTK_TREE_VIEW(treeview), column);
+        }
+        add_column("ID", COL_ID);
+        add_column("Nom", COL_NOM);
+        add_column("Âge", COL_AGE);
+        add_column("Taille", COL_TAILLE);
+        add_column("Email", COL_EMAIL);
+        add_column("Téléphone", COL_TELEPHONE);
+        add_column("Grade", COL_GRADE);
+        
+        // Placement du TreeView dans une fenêtre avec un GtkScrolledWindow
+        GtkWidget *scrolled_window = gtk_scrolled_window_new(NULL, NULL);
+        gtk_container_add(GTK_CONTAINER(scrolled_window), treeview);
+        gtk_container_add(GTK_CONTAINER(result_window), scrolled_window);
+        
+        gtk_widget_show_all(result_window);
     }
     gtk_widget_destroy(dialog);
 }
+
 
 void on_export_csv_clicked(GtkButton *button, gpointer user_data) {
     if(exporterCSV(db)) {
